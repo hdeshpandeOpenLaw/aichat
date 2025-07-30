@@ -1,0 +1,3 @@
+[submodule "openlaw-frontend"]
+    path = openlaw-frontend
+    url = https://github.com/Hrishikesh111/openlaw-frontend

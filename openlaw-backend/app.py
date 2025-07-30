@@ -115,7 +115,7 @@ Generate a natural, conversational goodbye message:
 """
     
     try:
-        response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
         return response.text.strip()
     except Exception as e:
         return "Thank you for using OpenLaw! If you need any further assistance with legal matters, please don't hesitate to reach out. Take care!"
@@ -157,7 +157,7 @@ Here is the full conversation history for context:
 Query: "{nl_query}"
 """
     try:
-        response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
         cleaned_text = response.text.strip().strip("`")
         if cleaned_text.startswith("json"):
             cleaned_text = cleaned_text[4:].strip()
@@ -298,7 +298,7 @@ You matched this lawyer:
 Name: {top_lawyer.get('name', 'N/A')}, State: {top_lawyer.get('licenseState', 'N/A')}, Specialty: {top_lawyer.get('specialties', 'N/A')}, Rating: {top_lawyer.get('rating', 'N/A')}
 Explain in 1 sentence why this lawyer is the best match for the user query. Don't repeat exact attributes. Be helpful and natural. Dont mention "user", talk in 2nd person."""
     try:
-        response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
         return response.text.strip().strip("`")
     except Exception:
         return "This lawyer is a good match for your needs."
@@ -361,7 +361,7 @@ Be smart about extracting information and handling edge cases. Ensure the JSON i
 """
     
     try:
-        response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
         response_text = response.text.strip()
         
         # Try to extract JSON from the response
@@ -560,17 +560,52 @@ def handle_document_drafting_flow(user_query: str, flow_context: dict, history: 
         data.update(requirements.get('extracted_data', {}))
         data['document_type'] = requirements.get('document_type', 'legal_document')
         
-        flow_context['step'] = 2
-        flow_context['data'] = data
-        
-        return {
-            'response': requirements.get('next_question', 'What type of legal document do you need to create?'),
-            'should_end_flow': False,
-            'flow_context': flow_context
-        }
+        # Check if user requested dummy data in the initial query
+        if requirements.get('has_sufficient_info', False):
+            # Generate the document immediately
+            document_content = generate_legal_document(data, history)
+            flow_context['step'] = 3
+            
+            return {
+                'response': "Perfect! I'll generate your document right away.",
+                'should_end_flow': True,
+                'document_content': document_content,
+                'document_type': data.get('document_type', 'legal_document'),
+                'flow_context': flow_context
+            }
+        else:
+            flow_context['step'] = 2
+            flow_context['data'] = data
+            
+            return {
+                'response': requirements.get('next_question', 'What type of legal document do you need to create?'),
+                'should_end_flow': False,
+                'flow_context': flow_context
+            }
     
     # Step 2: Gather additional information
     elif step == 2:
+        # Quick check for dummy data keywords in user response
+        dummy_keywords = [
+            "dummy data", "placeholder data", "template", "sample", "example", 
+            "standard template", "use dummy data", "with dummy data", "basic template",
+            "yes", "please", "okay", "sure"
+        ]
+        
+        user_query_lower = user_query.lower()
+        if any(keyword in user_query_lower for keyword in dummy_keywords):
+            # Generate the document immediately with dummy data
+            document_content = generate_legal_document(data, history)
+            flow_context['step'] = 3
+            
+            return {
+                'response': "Perfect! I'll generate your document right away.",
+                'should_end_flow': True,
+                'document_content': document_content,
+                'document_type': data.get('document_type', 'legal_document'),
+                'flow_context': flow_context
+            }
+        
         # Use LLM to extract information and determine next question
         prompt = f"""
 You are helping gather information for a legal document. 
@@ -578,6 +613,8 @@ You are helping gather information for a legal document.
 Document Type: {data.get('document_type', 'legal document')}
 Current Data: {json.dumps(data, indent=2)}
 User's Response: "{user_query}"
+
+IMPORTANT: If the user explicitly asks for dummy data, placeholder data, or a basic template, immediately set has_sufficient_info to true and provide a response indicating you'll generate the document with dummy data.
 
 Analyze the user's response and:
 1. Extract any relevant information provided
@@ -589,7 +626,8 @@ Analyze the user's response and:
 7. If the user provides a lot of information, ask for clarification on any specific details.
 8. If user wants a blueprint to get started, make it using whatever information you have.
 9. If user wants to exit the flow, allow it gracefully with a professional response.
-10. Before giving the user the document, always give a caution saying that the document is not a legal advice and is for informational purposes only, they should consult a lawyer for legal advice.
+10. If user wants a basic template or a baseline version to get started, use dummy data and details with all standard details. use placeholder data.
+11. Before giving the user the document, always give a caution saying that the document is not a legal advice and is for informational purposes only, they should consult a lawyer for legal advice.
 
 Respond with JSON:
 {{
@@ -603,7 +641,7 @@ Be conversational and professional. If the user provides multiple pieces of info
 """
         
         try:
-            response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+            response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
             response_text = response.text.strip()
             
             # Extract JSON
@@ -721,6 +759,8 @@ Document Data: {json.dumps(data, indent=2)}
 Conversation Context:
 {conversation_context}
 
+IMPORTANT: If the user requested dummy data or a template, use realistic placeholder information for all missing details.
+
 Instructions:
 1. Analyze the document type and requirements from the data and conversation
 2. Determine what type of legal document is needed (contract, agreement, letter, notice, etc.)
@@ -732,7 +772,7 @@ Instructions:
    - All necessary sections and clauses for the document type
    - Appropriate legal disclaimers and boilerplate
    - Standard legal language and terminology
-   - All parties' information and signatures
+   - All parties' information and signatures (use placeholder data if needed)
    - Date, jurisdiction, and legal references
 
 Document Requirements:
@@ -742,18 +782,36 @@ Document Requirements:
 - Ensure all terms are clear and enforceable
 - Include appropriate legal disclaimers
 - Make it comprehensive and professional
+- If using dummy data, make it realistic and complete
 
 Generate the complete legal document:
 """
     
     try:
-        response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
         return response.text.strip()
     except Exception as e:
         return f"Error generating document: {e}"
 
 def determine_document_requirements(user_query: str, conversation_history: list = None):
     """Use LLM to intelligently determine what information is needed for document creation"""
+    
+    # Quick check for dummy data keywords
+    dummy_keywords = [
+        "dummy data", "placeholder data", "template", "sample", "example", 
+        "standard template", "use dummy data", "with dummy data", "basic template"
+    ]
+    
+    user_query_lower = user_query.lower()
+    if any(keyword in user_query_lower for keyword in dummy_keywords):
+        return {
+            "document_type": "legal document",
+            "required_info": [],
+            "next_question": "I'll generate your document with dummy data right away.",
+            "extracted_data": {"use_dummy_data": True},
+            "confidence": "high",
+            "has_sufficient_info": True
+        }
     
     conversation_context = ""
     if conversation_history:
@@ -771,12 +829,30 @@ User Query: "{user_query}"
 Conversation Context:
 {conversation_context}
 
+IMPORTANT: If the user explicitly asks for dummy data, placeholder data, or a basic template, immediately set has_sufficient_info to true and provide a response indicating you'll generate the document with dummy data.
+
+DUMMY DATA DETECTION: Check if the user query contains any of these phrases:
+- "dummy data"
+- "placeholder data" 
+- "template"
+- "sample"
+- "example"
+- "standard template"
+- "use dummy data"
+- "with dummy data"
+- "basic template"
+
+If ANY of these phrases are found, immediately set has_sufficient_info to true and proceed to document generation.
+
 Your task:
 1. Determine what type of legal document the user needs
 2. Identify what specific information is required to create this document
 3. Ask intelligent, targeted questions to gather the necessary details
 4. Be conversational but professional
 5. If the user provides multiple pieces of information, extract what you can and ask for the remaining details
+6. If user asks for dummy data or template, immediately proceed to document generation
+
+CRITICAL: Look for keywords like "dummy data", "placeholder", "template", "sample", "example", "standard template", "use dummy data", "with dummy data" - if any of these are present, set has_sufficient_info to true immediately.
 
 Respond with a JSON object in this exact format:
 {{
@@ -784,14 +860,15 @@ Respond with a JSON object in this exact format:
     "required_info": ["list of specific information needed"],
     "next_question": "your next question to the user",
     "extracted_data": {{"field": "value"}},
-    "confidence": "high/medium/low"
+    "confidence": "high/medium/low",
+    "has_sufficient_info": true/false
 }}
 
 Be specific about what information is needed for the document type.
 """
     
     try:
-        response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
         response_text = response.text.strip()
         
         # Extract JSON from response
@@ -815,36 +892,112 @@ Be specific about what information is needed for the document type.
 
 def create_docx(content, filename):
     """Create a .docx file from content"""
-    doc = Document()
+    import re
     
-    # Split content into paragraphs and add to document
-    paragraphs = content.split('\n\n')
-    for para in paragraphs:
-        if para.strip():
-            # Handle markdown formatting
-            if para.startswith('**') and para.endswith('**'):
-                # Bold text
-                p = doc.add_paragraph()
-                p.add_run(para[2:-2]).bold = True
-            elif para.startswith('#'):
-                # Heading
-                level = len(para) - len(para.lstrip('#'))
-                text = para.lstrip('#').strip()
-                if level == 1:
-                    doc.add_heading(text, level=1)
-                elif level == 2:
-                    doc.add_heading(text, level=2)
+    try:
+        doc = Document()
+        
+        # Clean and process the content
+        if not content or not content.strip():
+            # Add a default message if content is empty
+            doc.add_paragraph("Document content is empty or could not be generated.")
+            buffer = io.BytesIO()
+            doc.save(buffer)
+            buffer.seek(0)
+            return buffer
+        
+        # Split content into paragraphs and add to document
+        paragraphs = content.split('\n\n')
+        for para in paragraphs:
+            if para.strip():
+                # Handle markdown formatting
+                if para.startswith('**') and para.endswith('**'):
+                    # Bold text
+                    p = doc.add_paragraph()
+                    p.add_run(para[2:-2]).bold = True
+                elif para.startswith('#'):
+                    # Heading
+                    level = len(para) - len(para.lstrip('#'))
+                    text = para.lstrip('#').strip()
+                    if level == 1:
+                        doc.add_heading(text, level=1)
+                    elif level == 2:
+                        doc.add_heading(text, level=2)
+                    else:
+                        doc.add_heading(text, level=3)
                 else:
-                    doc.add_heading(text, level=3)
-            else:
-                # Regular paragraph
-                doc.add_paragraph(para.strip())
-    
-    # Save to bytes buffer
-    buffer = io.BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    return buffer
+                    # Regular paragraph - handle inline markdown formatting
+                    text = para.strip()
+                    
+                    # Check if this is a numbered list item
+                    if re.match(r'^\d+\.\s', text):
+                        p = doc.add_paragraph()
+                        p.style = 'List Number'
+                        # Remove the number and dot from the text
+                        text = re.sub(r'^\d+\.\s', '', text)
+                    # Check if this is a bullet point
+                    elif text.startswith('* ') or text.startswith('- '):
+                        p = doc.add_paragraph()
+                        p.style = 'List Bullet'
+                        # Remove the bullet marker
+                        text = text[2:]
+                    else:
+                        p = doc.add_paragraph()
+                    
+                    # Process inline markdown formatting
+                    
+                    # First handle bold formatting
+                    bold_pattern = r'\*\*(.*?)\*\*'
+                    parts = re.split(bold_pattern, text)
+                    
+                    for i, part in enumerate(parts):
+                        if i % 2 == 0:  # Regular text - now check for italic
+                            if part:
+                                # Process italic formatting within regular text
+                                italic_pattern = r'\*(.*?)\*'
+                                italic_parts = re.split(italic_pattern, part)
+                                
+                                for j, italic_part in enumerate(italic_parts):
+                                    if j % 2 == 0:  # Regular text
+                                        if italic_part:
+                                            p.add_run(italic_part)
+                                    else:  # Italic text
+                                        if italic_part:
+                                            p.add_run(italic_part).italic = True
+                        else:  # Bold text (part is the text inside **)
+                            if part:
+                                # Check for italic within bold
+                                italic_pattern = r'\*(.*?)\*'
+                                italic_parts = re.split(italic_pattern, part)
+                                
+                                for j, italic_part in enumerate(italic_parts):
+                                    if j % 2 == 0:  # Bold text
+                                        if italic_part:
+                                            p.add_run(italic_part).bold = True
+                                    else:  # Bold and italic text
+                                        if italic_part:
+                                            run = p.add_run(italic_part)
+                                            run.bold = True
+                                            run.italic = True
+        
+        # Save to bytes buffer
+        buffer = io.BytesIO()
+        doc.save(buffer)
+        buffer.seek(0)
+        return buffer
+        
+    except Exception as e:
+        print(f"Error creating DOCX: {e}")
+        # Create a fallback document
+        doc = Document()
+        doc.add_heading("Document Generation Error", level=1)
+        doc.add_paragraph(f"An error occurred while generating the document: {str(e)}")
+        doc.add_paragraph("Please try again or contact support if the issue persists.")
+        
+        buffer = io.BytesIO()
+        doc.save(buffer)
+        buffer.seek(0)
+        return buffer
 
 # Firebase is used for chat session storage
 from flask import request, jsonify
@@ -1131,11 +1284,17 @@ def generate_document():
         document_type = request.form.get('document_type', 'Document')
         filename = request.form.get('filename', 'document.docx')
         
+        print(f"Generating document: {filename}, type: {document_type}")
+        print(f"Content length: {len(document_content) if document_content else 0}")
+        
         if not document_content:
+            print("Error: No document content provided")
             return jsonify({"error": "No document content provided"}), 400
         
         # Create the document
         buffer = create_docx(document_content, filename)
+        
+        print(f"Document created successfully, size: {buffer.getbuffer().nbytes} bytes")
         
         return send_file(
             buffer,
@@ -1145,6 +1304,7 @@ def generate_document():
         )
         
     except Exception as e:
+        print(f"Error generating document: {e}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -1206,7 +1366,7 @@ Conversation:
 Generate only the title, nothing else:
 """
         
-        response = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
         title = response.text.strip().strip('"').strip("'")
         
         # Ensure title is not too long
