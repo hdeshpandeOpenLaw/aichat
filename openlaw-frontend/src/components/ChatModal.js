@@ -57,6 +57,15 @@ const ChatModal = ({ isOpen, onClose, initialQuery }) => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  // Focus input field when modal opens
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      setTimeout(() => {
+        inputRef.current.focus();
+      }, 100);
+    }
+  }, [isOpen]);
+
   // Generate AI title for chat based on conversation
   const generateChatTitle = async (messages) => {
     if (messages.length < 2) return 'New chat';
@@ -132,6 +141,13 @@ const ChatModal = ({ isOpen, onClose, initialQuery }) => {
       setCurrentChatTitle(chat.title);
       setIsInActiveConversation(true);
       setMessageCount(chat.messages.length);
+      
+      // Focus the input field after loading chat
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, 100);
     }
   };
 
@@ -247,6 +263,15 @@ const ChatModal = ({ isOpen, onClose, initialQuery }) => {
       timestamp: new Date()
     };
     setMessages(prev => [...prev, newMessage]);
+    
+    // Focus the input field after AI responses
+    if (sender === 'ai') {
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, 100);
+    }
   };
 
   const displayGeneratedDocument = async (content, type, filename) => {
@@ -390,6 +415,13 @@ const ChatModal = ({ isOpen, onClose, initialQuery }) => {
       // Remove loading message
       setMessages(prev => prev.filter(msg => !msg.message.includes(loadingMessageId)));
       setIsLoading(false);
+      
+      // Focus the input field after response is complete
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, 100);
 
       const data = response.data;
 
@@ -457,6 +489,13 @@ const ChatModal = ({ isOpen, onClose, initialQuery }) => {
     } catch (err) {
       setMessages(prev => prev.filter(msg => !msg.message.includes(loadingMessageId)));
       setIsLoading(false);
+      
+      // Focus the input field after error response
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, 100);
       
       // Check if the error is due to abort
       if (err.name === 'AbortError' || err.code === 'ERR_CANCELED') {
@@ -730,6 +769,13 @@ const ChatModal = ({ isOpen, onClose, initialQuery }) => {
       abortControllerRef.current = null;
     }
     setIsLoading(false);
+    
+    // Focus the input field after starting new chat
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+      }
+    }, 100);
   };
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false); // NEW: sidebar toggle for mobile
